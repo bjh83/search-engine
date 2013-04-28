@@ -44,28 +44,23 @@ class WebCrawler {
 
   private def run {
     session.withTransaction {
-      while(alive && !pageQueue.isEmpty) {
-        pageQueue().andThen{ case string => {
-            println("Got here")
-            println(string)
-            var document = Jsoup.parse(string)
-            getDivs(document).foreach(link => {
-                pageQueue << link
-                Pages.autoInc.insert(Page(None, link, System.currentTimeMillis()))
-                println(link)
-              })
-          }}
-        }
+      for(document <- pageQueue) {
+        getDivs(document).foreach(link => {
+            pageQueue << link
+            Pages.autoInc.insert(Page(None, link, System.currentTimeMillis()))
+            println(link)
+          })
       }
-      session.close
     }
-
-    def crawl {
-      if(startWithRoot) {
-        pageQueue << Settings.root
-      }
-      this.run
-    }
-
+    session.close
   }
+
+  def crawl {
+    if(startWithRoot) {
+      pageQueue << Settings.root
+    }
+    this.run
+  }
+
+}
 

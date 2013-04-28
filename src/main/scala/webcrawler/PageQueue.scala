@@ -1,22 +1,32 @@
 package search.webcrawler
 
-import dispatch._, Defaults._
+import scala.collection._
+import scala.concurrent._
+import ExecutionContext.Implicits.global
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
+import java.util.LinkedList
 
-class PageQueue {
-  private var requests = List[Future[String]]()
+class PageQueue extends Iterable[Future[Document]] {
+  private val requests = new LinkedList[Future[Document]]
+
+  class QueueIterator extends Iterator[Future[Document]] {
+    private val iterator = requests.iterator
+
+    def hasNext = iterator.hasNext
+
+    def next = iterator.next
+  }
 
   def << (address: String) {
-    var request = url(address)
-    requests +:= Http(request OK as.String)
-    println(requests)
+    requests.add(future(Jsoup.connect(address).get))
   }
 
   def isEmpty = requests.isEmpty
 
-  def apply() = {
-    var head = requests.head
-    requests = requests.drop(1)
-    head
-  }
+  def apply: Document = for(value <- requests.remove()) yield value
+
+  def iterator = new QueueIterator
+
 }
 
