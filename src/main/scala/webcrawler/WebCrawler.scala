@@ -3,6 +3,8 @@ package search.webcrawler
 import scala.slick.driver.H2Driver.simple._
 import scala.collection.JavaConversions._
 import slick.jdbc.meta.MTable
+import java.sql.SQLException
+import java.net.URL
 import org.jsoup.{Jsoup, HttpStatusException}
 import org.jsoup.nodes.Document
 
@@ -14,7 +16,6 @@ object Settings {
 class WebCrawler {
   private implicit val session = Database.forURL("jdbc:h2:~/webcrawler", driver = "org.h2.Driver").createSession()
   private var tableList = List[String]()
-  private var pageQueue = new PageQueue
   private var alive = true
   private var startWithRoot = false
   MTable.getTables.list()(session).foreach(t => tableList ::= t.name.name)
@@ -42,28 +43,48 @@ class WebCrawler {
     list
   }
 
-  private def run {
+  def clean(raw: String) = {
+    var url = new URL(raw)
+    url.getProtocol + "://" + url.getHost + url.getPath
+  }
+
+  private def update(url: String, lastVisited: Long) = Pages.where(_.url === url).update(url, lastVisited)
+
+  private def run(queue: PageQueue) {
     session.withTransaction {
-      while(!pageQueue.isEmpty) {
+      for((url, doc) <- queue) {
         try {
-          var document = pageQueue()
-          getDivs(document).foreach(link => {
-              pageQueue << link
-              Pages.autoInc.insert(Page(None, link, System.currentTimeMillis()))
-              println(link)
+          getDivs(doc).foreach(link => {
+              try {
+                Pages.insert(clean(link), 0) 
+              } catch {
+                case _: SQLException => Unit
+              } finally {
+                update(url, System.currentTimeMillis)
+              }
             })
         } catch {
-          case _: HttpStatusException => Unit
-          case e: Exception => println(e)
+          case e: Exception => { update(url, -1); println(e) }
         }
       }
     }
-    session.close
   }
 
-  def crawl {
-    pageQueue << Settings.root
-    this.run
+  def crawl() {
+    var queue = new PageQueue
+    queue << Settings.root
+    run(queue)
+    while(alive) {
+      queue = new PageQueue
+      for(page <- Query(Pages); if page.lastVisited === 0l) {
+        queue << page._1
+      }
+      if(queue.isEmpty) {
+        return
+      } else {
+        run(queue)
+      }
+    }
   }
 
 }
